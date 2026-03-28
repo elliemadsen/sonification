@@ -49,6 +49,28 @@ for (let i = 0; i < 32; i++) {
   pg.appendChild(c);
 }
 
+// ── IOS AUDIO UNLOCK ─────────────────────────────────────────────────────
+// iOS Safari needs a silent buffer played on the first user gesture to fully
+// unlock the AudioContext even after resume().
+function iosAudioUnlock() {
+  if (!audioCtx) return;
+  const buf = audioCtx.createBuffer(1, 1, 22050);
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf;
+  src.connect(audioCtx.destination);
+  src.start(0);
+}
+
+// Pre-unlock on the very first touch so audio is ready before PLAY is tapped
+document.addEventListener(
+  "touchstart",
+  () => {
+    if (!audioCtx) initAudio();
+    audioCtx.resume().then(iosAudioUnlock);
+  },
+  { once: true },
+);
+
 // ── HEIC SUPPORT ──────────────────────────────────────────────────────────
 async function decodeImageFile(file) {
   const isHeic =
@@ -313,7 +335,7 @@ function detectEdgeAt(pos) {
 }
 
 function playTick() {
-  if (!audioCtx) return;
+  if (!audioCtx || audioCtx.state !== "running") return;
   const dur = parseInt(document.getElementById("durSlider").value) / 1000;
   const now = audioCtx.currentTime;
   if (mode === "edge") {
@@ -364,10 +386,12 @@ function scanStep() {
   animId = requestAnimationFrame(scanStep);
 }
 
-function togglePlay() {
+async function togglePlay() {
   if (!img) return;
   initAudio();
-  if (audioCtx.state === "suspended") audioCtx.resume();
+  // Await resume — critical on iOS Safari where the context starts suspended
+  if (audioCtx.state === "suspended") await audioCtx.resume();
+  iosAudioUnlock();
   scanning = !scanning;
   const btn = document.getElementById("playBtn");
   if (scanning) {
