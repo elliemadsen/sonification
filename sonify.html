@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <title>Sonify</title>
+    <links
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔊</text></svg>"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header>
+      <div class="tagline">Image Sonification Studio</div>
+      <div class="status-pill">
+        <div class="status-dot" id="statusDot"></div>
+        <span id="statusText">IDLE</span>
+      </div>
+    </header>
+
+    <div class="main">
+      <aside class="sidebar">
+        <div class="section">
+          <div class="section-label">Image</div>
+          <div class="drop-zone" id="dropZone">
+            <input type="file" id="fileInput" accept="image/*,.heic,.heif" />
+            <span class="drop-icon">⊕</span>
+            <div class="drop-text">
+              <strong>Upload image</strong>
+              JPG, PNG, HEIC, HEIF, WebP
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-label">Playhead Direction</div>
+          <div class="dir-toggle">
+            <button class="dir-btn active" id="dirLR" onclick="setDir('lr')">
+              <span class="dir-icon">→</span>LEFT → RIGHT
+            </button>
+            <button class="dir-btn" id="dirTB" onclick="setDir('tb')">
+              <span class="dir-icon">↓</span>TOP → BOTTOM
+            </button>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-label">Scan Mode</div>
+          <div class="toggle-group">
+            <button class="tog" onclick="setMode('bright', this)">
+              BRIGHT
+            </button>
+            <button class="tog" onclick="setMode('color', this)">COLOR</button>
+            <button class="tog active" onclick="setMode('edge', this)">
+              EDGE
+            </button>
+          </div>
+          <p
+            style="
+              font-size: 10px;
+              color: var(--muted);
+              margin-top: 8px;
+              line-height: 1.6;
+            "
+            id="modeDesc"
+          >
+            Detects sharp contrast edges (like text, graph lines). Each edge
+            fires a note pitched to its cross-axis position.
+          </p>
+          <div class="ctrl" id="edgeThresholdCtrl" style="margin-top: 10px">
+            <div class="ctrl-header">
+              <span class="ctrl-name">Edge Contrast Threshold</span>
+              <span class="ctrl-val" id="edgeThresholdVal">7%</span>
+            </div>
+            <input
+              type="range"
+              id="edgeThresholdSlider"
+              min="0.01"
+              max="0.5"
+              value="0.07"
+              step="0.01"
+            />
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-label">Sound</div>
+
+          <div class="ctrl">
+            <div class="ctrl-header">
+              <span class="ctrl-name">Waveform</span>
+            </div>
+            <div class="wave-group">
+              <button class="wave-btn active" onclick="setWave('sine', this)">
+                SINE
+              </button>
+              <button class="wave-btn" onclick="setWave('triangle', this)">
+                TRI
+              </button>
+              <button class="wave-btn" onclick="setWave('square', this)">
+                SQ
+              </button>
+              <button class="wave-btn" onclick="setWave('sawtooth', this)">
+                SAW
+              </button>
+            </div>
+          </div>
+
+          <div class="ctrl">
+            <div class="ctrl-header"><span class="ctrl-name">Scale</span></div>
+            <select id="scaleSelect">
+              <option value="pentatonic">Pentatonic</option>
+              <option value="major">Major</option>
+              <option value="minor">Natural Minor</option>
+              <option value="dorian">Dorian</option>
+              <option value="chromatic">Chromatic</option>
+              <option value="wholetone">Whole Tone</option>
+              <option value="blues">Blues</option>
+            </select>
+          </div>
+
+          <div class="ctrl">
+            <div class="ctrl-header">
+              <span class="ctrl-name">Root Note</span>
+            </div>
+            <select id="rootSelect">
+              <option value="48">C3</option>
+              <option value="50">D3</option>
+              <option value="52">E3</option>
+              <option value="53">F3</option>
+              <option value="55">G3</option>
+              <option value="57">A3</option>
+              <option value="60" selected>C4</option>
+              <option value="64">E4</option>
+              <option value="67">G4</option>
+            </select>
+          </div>
+
+          <div class="ctrl">
+            <div class="ctrl-header">
+              <span class="ctrl-name">Scan Speed</span>
+              <span class="ctrl-val" id="speedVal">5 px/f</span>
+            </div>
+            <input
+              type="range"
+              id="speedSlider"
+              min="1"
+              max="30"
+              value="5"
+              step="1"
+            />
+          </div>
+
+          <div class="ctrl">
+            <div class="ctrl-header">
+              <span class="ctrl-name">Sample Voices</span>
+              <span class="ctrl-val" id="voicesVal">10</span>
+            </div>
+            <input
+              type="range"
+              id="voicesSlider"
+              min="2"
+              max="24"
+              value="10"
+              step="1"
+            />
+          </div>
+
+          <div class="ctrl">
+            <div class="ctrl-header">
+              <span class="ctrl-name">Note Duration</span>
+              <span class="ctrl-val" id="durVal">80ms</span>
+            </div>
+            <input
+              type="range"
+              id="durSlider"
+              min="20"
+              max="500"
+              value="80"
+              step="5"
+            />
+          </div>
+
+          <div class="ctrl">
+            <div class="ctrl-header">
+              <span class="ctrl-name">Volume</span>
+              <span class="ctrl-val" id="volVal">65%</span>
+            </div>
+            <input
+              type="range"
+              id="volSlider"
+              min="0"
+              max="1"
+              value="0.65"
+              step="0.01"
+            />
+          </div>
+
+          <div class="ctrl">
+            <div class="ctrl-header">
+              <span class="ctrl-name">Reverb Mix</span>
+              <span class="ctrl-val" id="reverbVal">20%</span>
+            </div>
+            <input
+              type="range"
+              id="reverbSlider"
+              min="0"
+              max="1"
+              value="0.2"
+              step="0.01"
+            />
+          </div>
+
+          <div class="ctrl">
+            <div class="ctrl-header">
+              <span class="ctrl-name">Pitch Range (semitones)</span>
+              <span class="ctrl-val" id="rangeVal">24</span>
+            </div>
+            <input
+              type="range"
+              id="rangeSlider"
+              min="6"
+              max="48"
+              value="24"
+              step="1"
+            />
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-label">Playhead Color</div>
+          <div style="display: flex; align-items: center; gap: 10px">
+            <input
+              type="color"
+              id="lineColor"
+              value="#e2f18e"
+              style="
+                width: 32px;
+                height: 28px;
+                border: 1px solid var(--border);
+                border-radius: 4px;
+                cursor: pointer;
+                padding: 2px;
+                background: none;
+              "
+            />
+            <span style="font-size: 11px; color: var(--muted)"
+              >Scan line color</span
+            >
+          </div>
+        </div>
+      </aside>
+
+      <div class="canvas-area">
+        <div class="canvas-wrap" id="canvasWrap">
+          <div class="canvas-placeholder" id="placeholder">
+            <div class="placeholder-grid" id="pgrid"></div>
+            <span>Drop an image to begin</span>
+          </div>
+          <canvas id="mainCanvas" style="display: none"></canvas>
+        </div>
+
+        <div class="viz-wrap" id="vizWrap" style="display: none">
+          <canvas id="vizCanvas"></canvas>
+        </div>
+
+        <div class="bottom-bar">
+          <button
+            class="btn btn-play"
+            id="playBtn"
+            disabled
+            onclick="togglePlay()"
+          >
+            ▶ PLAY
+          </button>
+          <button class="btn" id="resetBtn" disabled onclick="resetScan()">
+            ⟳ RESET
+          </button>
+
+          <div class="progress-wrap">
+            <div
+              class="progress-bar-bg"
+              id="progressBg"
+              onclick="seekClick(event)"
+            >
+              <div class="progress-bar-fill" id="progressFill"></div>
+            </div>
+            <div class="progress-pct" id="progressPct">0%</div>
+          </div>
+
+          <div class="vumeter" id="vuMeter"></div>
+
+          <div class="rec-indicator" id="recIndicator">
+            <div class="rec-dot"></div>
+            REC
+          </div>
+
+          <div class="export-opts">
+            <button
+              class="btn btn-dl"
+              id="dlAudio"
+              disabled
+              onclick="exportAudio()"
+            >
+              ⬇ AUDIO
+            </button>
+            <button
+              class="btn btn-dl"
+              id="dlVideo"
+              disabled
+              onclick="exportVideo()"
+            >
+              ⬇ VIDEO
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="script.js"></script>
+  </body>
+</html>
