@@ -584,6 +584,10 @@ canvas#vizCanvas {
   .canvas-wrap {
     padding: 10px;
   }
+  /* Hide frequency visualizer on mobile — maximises image space */
+  .viz-wrap {
+    display: none;
+  }
 
   /* Bottom bar: two rows — controls top, progress bottom */
   .bottom-bar {

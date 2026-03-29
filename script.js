@@ -12,6 +12,8 @@ let direction = "lr",
 let edgeThreshold = 0.07;
 let offscreenCanvas = null,
   offCtx = null;
+let logicalW = 0,
+  logicalH = 0; // canvas size in CSS/logical pixels (independent of devicePixelRatio)
 let videoRecorder = null,
   videoChunks = [];
 let audioDestination = null;
@@ -61,15 +63,52 @@ function iosAudioUnlock() {
   src.start(0);
 }
 
-// Pre-unlock on the very first touch so audio is ready before PLAY is tapped
-document.addEventListener(
-  "touchstart",
-  () => {
-    if (!audioCtx) initAudio();
+// Resume AudioContext on every touch — handles iOS auto-suspend between taps.
+// Fires in capture phase so it runs before any other handler.
+document.addEventListener("touchstart", () => {
+  if (audioCtx && audioCtx.state !== "running") {
     audioCtx.resume().then(iosAudioUnlock);
-  },
-  { once: true },
-);
+  }
+}, true);
+
+// ── IOS SILENT SWITCH FIX ─────────────────────────────────────────────────
+// iOS Web Audio defaults to the "ambient" audio session (muted by the silent
+// switch). Playing a looping HTML <audio> element keeps the session elevated
+// to "playback" (ignores the switch) for as long as scanning is active.
+// A one-shot WAV only works for a few seconds before iOS demotes the session.
+(function () {
+  // Build a 1-second silent WAV in memory once, reuse it as a looping element.
+  const sr = 44100, n = sr; // 1 second of silence
+  const ab = new ArrayBuffer(44 + n * 2);
+  const v = new DataView(ab);
+  const ws = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  ws(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); ws(8, 'WAVE');
+  ws(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
+  v.setUint16(22, 1, true); v.setUint32(24, sr, true);
+  v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  ws(36, 'data'); v.setUint32(40, n * 2, true); // sample bytes = 0 (silence)
+  const url = URL.createObjectURL(new Blob([ab], { type: 'audio/wav' }));
+  const _silentAudio = new Audio(url);
+  _silentAudio.loop = true;
+  _silentAudio.volume = 0.001; // inaudible but non-zero keeps the session alive
+
+  // Start looping silence inside a gesture handler to satisfy iOS autoplay policy.
+  // Called by togglePlay() when scanning begins.
+  window._iosSessionStart = () => {
+    if (_silentAudio.paused) _silentAudio.play().catch(() => {});
+  };
+  // Pause when scanning stops so we don’t consume resources unnecessarily.
+  window._iosSessionStop = () => {
+    if (!_silentAudio.paused) _silentAudio.pause();
+  };
+  // Re-start the loop if the page becomes visible again (iOS resets session on background).
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && !_silentAudio.paused) {
+      _silentAudio.play().catch(() => {});
+    }
+  });
+}());
+
 
 // ── HEIC SUPPORT ──────────────────────────────────────────────────────────
 async function decodeImageFile(file) {
@@ -129,18 +168,25 @@ async function loadImage(file) {
       h = maxH;
     }
 
+    const dpr = window.devicePixelRatio || 1;
+    logicalW = w;
+    logicalH = h;
     const mc = document.getElementById("mainCanvas");
-    mc.width = w;
-    mc.height = h;
+    // Backing store at physical pixels, CSS size at logical pixels → crisp on Retina
+    mc.width = Math.round(w * dpr);
+    mc.height = Math.round(h * dpr);
+    mc.style.width = w + "px";
+    mc.style.height = h + "px";
     offscreenCanvas = document.createElement("canvas");
     offscreenCanvas.width = w;
     offscreenCanvas.height = h;
     offCtx = offscreenCanvas.getContext("2d");
     offCtx.drawImage(img, 0, 0, w, h);
-    mc.getContext("2d").drawImage(img, 0, 0, w, h);
+    // drawPlayhead() (called below) renders to mainCanvas with DPR transform
     mc.style.display = "block";
     document.getElementById("placeholder").style.display = "none";
-    document.getElementById("vizWrap").style.display = "block";
+    // Hide visualizer strip on mobile — gives more vertical space to the image
+    document.getElementById("vizWrap").style.display = window.innerWidth > 640 ? "block" : "none";
     document.getElementById("playBtn").disabled = false;
     document.getElementById("resetBtn").disabled = false;
     document.getElementById("dlAudio").disabled = false;
@@ -176,7 +222,10 @@ function drawPlayhead() {
   if (!img || !offscreenCanvas) return;
   const mc = document.getElementById("mainCanvas");
   const mctx = mc.getContext("2d");
-  mctx.drawImage(offscreenCanvas, 0, 0);
+  const dpr = window.devicePixelRatio || 1;
+  // Reset to identity then scale by DPR so all coords below are in logical pixels
+  mctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  mctx.drawImage(offscreenCanvas, 0, 0, logicalW, logicalH);
   const color = document.getElementById("lineColor").value;
   mctx.strokeStyle = color;
   mctx.lineWidth = 1.5;
@@ -185,10 +234,10 @@ function drawPlayhead() {
   mctx.beginPath();
   if (direction === "lr") {
     mctx.moveTo(scanPos, 0);
-    mctx.lineTo(scanPos, mc.height);
+    mctx.lineTo(scanPos, logicalH);
   } else {
     mctx.moveTo(0, scanPos);
-    mctx.lineTo(mc.width, scanPos);
+    mctx.lineTo(logicalW, scanPos);
   }
   mctx.stroke();
   mctx.shadowBlur = 0;
@@ -198,6 +247,9 @@ function drawPlayhead() {
 function initAudio() {
   if (audioCtx) return;
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  audioCtx.onstatechange = () => {
+    if (audioCtx.state !== 'running' && scanning) audioCtx.resume();
+  };
   masterGain = audioCtx.createGain();
   masterGain.gain.value = parseFloat(
     document.getElementById("volSlider").value,
@@ -278,16 +330,15 @@ function getNote(t) {
 }
 
 function sampleLine() {
-  const mc = document.getElementById("mainCanvas");
   const voices = parseInt(document.getElementById("voicesSlider").value);
   return Array.from({ length: voices }, (_, i) => {
     let x, y;
     if (direction === "lr") {
-      x = Math.min(scanPos, mc.width - 1);
-      y = Math.floor((i / (voices - 1 || 1)) * mc.height);
+      x = Math.min(scanPos, logicalW - 1);
+      y = Math.floor((i / (voices - 1 || 1)) * logicalH);
     } else {
-      y = Math.min(scanPos, mc.height - 1);
-      x = Math.floor((i / (voices - 1 || 1)) * mc.width);
+      y = Math.min(scanPos, logicalH - 1);
+      x = Math.floor((i / (voices - 1 || 1)) * logicalW);
     }
     const px = offCtx.getImageData(x, y, 1, 1).data;
     return {
@@ -301,30 +352,29 @@ function sampleLine() {
 
 function detectEdgeAt(pos) {
   if (pos < 1) return [];
-  const mc = document.getElementById("mainCanvas");
   const voices = parseInt(document.getElementById("voicesSlider").value);
   return Array.from({ length: voices }, (_, i) => {
     let x1, y1, x2, y2;
     if (direction === "lr") {
       x1 = pos;
-      y1 = Math.floor((i / (voices - 1 || 1)) * mc.height);
+      y1 = Math.floor((i / (voices - 1 || 1)) * logicalH);
       x2 = pos - 1;
       y2 = y1;
     } else {
       y1 = pos;
-      x1 = Math.floor((i / (voices - 1 || 1)) * mc.width);
+      x1 = Math.floor((i / (voices - 1 || 1)) * logicalW);
       y2 = pos - 1;
       x2 = x1;
     }
     const p1 = offCtx.getImageData(
-      Math.min(x1, mc.width - 1),
-      Math.min(y1, mc.height - 1),
+      Math.min(x1, logicalW - 1),
+      Math.min(y1, logicalH - 1),
       1,
       1,
     ).data;
     const p2 = offCtx.getImageData(
-      Math.min(x2, mc.width - 1),
-      Math.min(y2, mc.height - 1),
+      Math.min(x2, logicalW - 1),
+      Math.min(y2, logicalH - 1),
       1,
       1,
     ).data;
@@ -339,7 +389,8 @@ function playTick() {
   const dur = parseInt(document.getElementById("durSlider").value) / 1000;
   const now = audioCtx.currentTime;
   if (mode === "edge") {
-    detectEdgeAt(scanPos).forEach(({ diff, pos }) => {
+    const edges = detectEdgeAt(scanPos);
+    edges.forEach(({ diff, pos }) => {
       if (diff < edgeThreshold) return;
       const osc = audioCtx.createOscillator(),
         g = audioCtx.createGain();
@@ -374,8 +425,7 @@ function playTick() {
 // ── SCAN LOOP ─────────────────────────────────────────────────────────────
 function scanStep() {
   const speed = parseInt(document.getElementById("speedSlider").value);
-  const mc = document.getElementById("mainCanvas");
-  const total = direction === "lr" ? mc.width : mc.height;
+  const total = direction === "lr" ? logicalW : logicalH;
   scanPos += speed;
   if (scanPos >= total) scanPos = 0;
   drawPlayhead();
@@ -386,12 +436,9 @@ function scanStep() {
   animId = requestAnimationFrame(scanStep);
 }
 
-async function togglePlay() {
+function togglePlay() {
   if (!img) return;
-  initAudio();
-  // Await resume — critical on iOS Safari where the context starts suspended
-  if (audioCtx.state === "suspended") await audioCtx.resume();
-  iosAudioUnlock();
+  if (!audioCtx) initAudio();
   scanning = !scanning;
   const btn = document.getElementById("playBtn");
   if (scanning) {
@@ -399,19 +446,27 @@ async function togglePlay() {
     btn.classList.add("playing");
     document.getElementById("statusDot").classList.add("active");
     document.getElementById("statusText").textContent = "SCANNING";
-    animId = requestAnimationFrame(scanStep);
+    // Start looping silence to hold iOS audio session in "playback" category.
+    // Must be called synchronously in gesture handler for autoplay policy.
+    window._iosSessionStart();
+    audioCtx.resume().then(() => {
+      iosAudioUnlock();
+      if (scanning) animId = requestAnimationFrame(scanStep);
+    });
   } else {
     btn.textContent = "▶ PLAY";
     btn.classList.remove("playing");
     document.getElementById("statusDot").classList.remove("active");
     document.getElementById("statusText").textContent = "PAUSED";
     cancelAnimationFrame(animId);
+    window._iosSessionStop();
   }
 }
 
 function resetScan() {
   cancelAnimationFrame(animId);
   scanning = false;
+  window._iosSessionStop();
   scanPos = 0;
   document.getElementById("playBtn").textContent = "▶ PLAY";
   document.getElementById("playBtn").classList.remove("playing");
@@ -427,8 +482,7 @@ function seekClick(e) {
   const bg = document.getElementById("progressBg");
   const rect = bg.getBoundingClientRect();
   const t = (e.clientX - rect.left) / rect.width;
-  const mc = document.getElementById("mainCanvas");
-  scanPos = Math.floor(t * (direction === "lr" ? mc.width : mc.height));
+  scanPos = Math.floor(t * (direction === "lr" ? logicalW : logicalH));
   drawPlayhead();
 }
 
@@ -444,8 +498,7 @@ async function exportAudio() {
   document.getElementById("statusDot").classList.add("active");
   document.getElementById("recIndicator").style.display = "flex";
 
-  const mc = document.getElementById("mainCanvas");
-  const total = direction === "lr" ? mc.width : mc.height;
+  const total = direction === "lr" ? logicalW : logicalH;
   const speed = parseInt(document.getElementById("speedSlider").value);
   const dur = parseInt(document.getElementById("durSlider").value) / 1000;
   const voices = parseInt(document.getElementById("voicesSlider").value);
@@ -489,11 +542,11 @@ async function exportAudio() {
     for (let i = 0; i < voices; i++) {
       let x, y;
       if (direction === "lr") {
-        x = Math.min(pos, mc.width - 1);
-        y = Math.floor((i / (voices - 1 || 1)) * mc.height);
+        x = Math.min(pos, logicalW - 1);
+        y = Math.floor((i / (voices - 1 || 1)) * logicalH);
       } else {
-        y = Math.min(pos, mc.height - 1);
-        x = Math.floor((i / (voices - 1 || 1)) * mc.width);
+        y = Math.min(pos, logicalH - 1);
+        x = Math.floor((i / (voices - 1 || 1)) * logicalW);
       }
       const px = offCtx.getImageData(x, y, 1, 1).data;
       if (px[3] < 10) continue;
@@ -543,13 +596,13 @@ async function exportVideo() {
   }
 
   const mc = document.getElementById("mainCanvas");
-  const total = direction === "lr" ? mc.width : mc.height;
+  const total = direction === "lr" ? logicalW : logicalH;
   const speed = parseInt(document.getElementById("speedSlider").value);
   const dur = parseInt(document.getElementById("durSlider").value) / 1000;
 
   const expCanvas = document.createElement("canvas");
-  expCanvas.width = mc.width;
-  expCanvas.height = mc.height;
+  expCanvas.width = logicalW;
+  expCanvas.height = logicalH;
   const expCtx = expCanvas.getContext("2d");
   const fps = 30;
   const canvasStream = expCanvas.captureStream(fps);
@@ -559,6 +612,7 @@ async function exportVideo() {
 
   let mimeType = "video/webm;codecs=vp8,opus";
   if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = "video/webm";
+  if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = "video/mp4";
   videoChunks = [];
   videoRecorder = new MediaRecorder(canvasStream, {
     mimeType,
@@ -568,15 +622,29 @@ async function exportVideo() {
     if (e.data.size > 0) videoChunks.push(e.data);
   };
   videoRecorder.onstop = () => {
-    const blob = new Blob(videoChunks, { type: "video/webm" });
+    const actualMime = videoRecorder.mimeType || mimeType;
+    const ext = actualMime.startsWith("video/mp4") ? "mp4" : "webm";
+    const filename = `sonify_video.${ext}`;
+    const blob = new Blob(videoChunks, { type: actualMime });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "sonify_video.webm";
-    a.click();
-    document.getElementById("recIndicator").style.display = "none";
-    document.getElementById("statusText").textContent = "IDLE";
-    document.getElementById("statusDot").classList.remove("active");
+    const finish = () => {
+      document.getElementById("recIndicator").style.display = "none";
+      document.getElementById("statusText").textContent = "IDLE";
+      document.getElementById("statusDot").classList.remove("active");
+    };
+    // On iOS, Web Share API lets the user tap "Save to Photos" from the share sheet
+    const file = new File([blob], filename, { type: blob.type });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      navigator.share({ files: [file], title: "Sonify Video" })
+        .catch(() => {})
+        .finally(finish);
+    } else {
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      finish();
+    }
   };
   videoRecorder.start(100);
   document.getElementById("recIndicator").style.display = "flex";
@@ -601,10 +669,10 @@ async function exportVideo() {
     expCtx.beginPath();
     if (direction === "lr") {
       expCtx.moveTo(vpos, 0);
-      expCtx.lineTo(vpos, mc.height);
+      expCtx.lineTo(vpos, logicalH);
     } else {
       expCtx.moveTo(0, vpos);
-      expCtx.lineTo(mc.width, vpos);
+      expCtx.lineTo(logicalW, vpos);
     }
     expCtx.stroke();
     expCtx.shadowBlur = 0;
@@ -618,7 +686,6 @@ async function exportVideo() {
 
 function playTickAt(pos) {
   if (!audioCtx) return;
-  const mc = document.getElementById("mainCanvas");
   const voices = parseInt(document.getElementById("voicesSlider").value);
   const dur = parseInt(document.getElementById("durSlider").value) / 1000;
   const now = audioCtx.currentTime;
@@ -630,11 +697,11 @@ function playTickAt(pos) {
   for (let i = 0; i < voices; i++) {
     let x, y;
     if (direction === "lr") {
-      x = Math.min(pos, mc.width - 1);
-      y = Math.floor((i / (voices - 1 || 1)) * mc.height);
+      x = Math.min(pos, logicalW - 1);
+      y = Math.floor((i / (voices - 1 || 1)) * logicalH);
     } else {
-      y = Math.min(pos, mc.height - 1);
-      x = Math.floor((i / (voices - 1 || 1)) * mc.width);
+      y = Math.min(pos, logicalH - 1);
+      x = Math.floor((i / (voices - 1 || 1)) * logicalW);
     }
     const px = offCtx.getImageData(x, y, 1, 1).data;
     if (px[3] < 10) continue;
@@ -740,3 +807,16 @@ function setWave(w, btn) {
 document
   .getElementById("lineColor")
   .addEventListener("input", () => drawPlayhead());
+
+// ── IOS PLAY BUTTON FIX ───────────────────────────────────────────────────
+// On iOS, the synthetic "click" fires ~300ms after touchend and can be
+// outside the user-gesture window iOS needs to allow AudioContext.resume().
+// Handle touchend directly and block the subsequent click.
+document.getElementById("playBtn").addEventListener(
+  "touchend",
+  (e) => {
+    e.preventDefault();
+    togglePlay();
+  },
+  { passive: false },
+);
