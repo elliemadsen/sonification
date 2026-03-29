@@ -66,6 +66,11 @@ function iosAudioUnlock() {
 // Resume AudioContext on every touch — handles iOS auto-suspend between taps.
 // Fires in capture phase so it runs before any other handler.
 document.addEventListener("touchstart", () => {
+  // Elevate iOS audio session at the very first moment of touch.
+  // On real HTTPS sites (e.g. GitHub Pages), iOS enforces stricter timing
+  // than on local HTTP — calling play() here (finger-down) rather than in
+  // touchend (finger-up) gives it the maximum gesture-window time.
+  window._iosSessionStart();
   if (audioCtx && audioCtx.state !== "running") {
     audioCtx.resume().then(iosAudioUnlock);
   }
@@ -91,11 +96,17 @@ document.addEventListener("touchstart", () => {
   const _silentAudio = new Audio(url);
   _silentAudio.loop = true;
   _silentAudio.volume = 0.001; // inaudible but non-zero keeps the session alive
+  // playsinline prevents iOS from hijacking to fullscreen and is required
+  // for the audio session to be elevated to "playback" category on HTTPS pages.
+  _silentAudio.setAttribute('playsinline', '');
+  _silentAudio.setAttribute('webkit-playsinline', '');
 
   // Start looping silence inside a gesture handler to satisfy iOS autoplay policy.
-  // Called by togglePlay() when scanning begins.
+  // Called by touchstart (earliest possible) AND togglePlay() as a fallback.
   window._iosSessionStart = () => {
-    if (_silentAudio.paused) _silentAudio.play().catch(() => {});
+    // No paused guard — always attempt play() so iOS sees a fresh gesture-triggered
+    // play call, which is what it needs to elevate the session on real HTTPS sites.
+    _silentAudio.play().catch(() => {});
   };
   // Pause when scanning stops so we don’t consume resources unnecessarily.
   window._iosSessionStop = () => {
@@ -438,6 +449,9 @@ function scanStep() {
 
 function togglePlay() {
   if (!img) return;
+  // _iosSessionStart is also called in touchstart, but call it here too as a
+  // belt-and-suspenders fallback (e.g. mouse clicks on desktop).
+  window._iosSessionStart();
   if (!audioCtx) initAudio();
   scanning = !scanning;
   const btn = document.getElementById("playBtn");
@@ -446,9 +460,6 @@ function togglePlay() {
     btn.classList.add("playing");
     document.getElementById("statusDot").classList.add("active");
     document.getElementById("statusText").textContent = "SCANNING";
-    // Start looping silence to hold iOS audio session in "playback" category.
-    // Must be called synchronously in gesture handler for autoplay policy.
-    window._iosSessionStart();
     audioCtx.resume().then(() => {
       iosAudioUnlock();
       if (scanning) animId = requestAnimationFrame(scanStep);
