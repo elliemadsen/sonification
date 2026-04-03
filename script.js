@@ -767,7 +767,7 @@ function playTick() {
 }
 
 // ── UNIFIED NOTE SCHEDULING (for offline rendering) ───────────────────────
-function scheduleNotesAtPos(ctx, gainNode, pos, time) {
+function scheduleNotesAtPos(ctx, gainNode, pos, time, frameSecs = 0.053) {
   const voices = parseInt(document.getElementById('voicesSlider').value);
   const dur    = parseInt(document.getElementById('durSlider').value) / 1000;
   const scale  = SCALES[document.getElementById('scaleSelect').value];
@@ -880,12 +880,15 @@ function scheduleNotesAtPos(ctx, gainNode, pos, time) {
       const osc = ctx.createOscillator(), g = ctx.createGain();
       osc.type = waveform;
       osc.frequency.value = midiToFreq(getN(bandT));
-      const vol = Math.min(avg * 0.5, 0.4);
+      // Match live persistent-oscillator behavior: flat sustain for full frame duration
+      const vol = Math.min(avg * 0.45, 0.32);
+      const colDur = frameSecs + 0.015;
       g.gain.setValueAtTime(0.0001, time);
       g.gain.linearRampToValueAtTime(vol, time + attack);
-      g.gain.exponentialRampToValueAtTime(0.0001, time + dur * 1.2);
+      g.gain.setValueAtTime(vol, time + colDur - 0.01);
+      g.gain.linearRampToValueAtTime(0.0001, time + colDur);
       osc.connect(g); g.connect(gainNode);
-      osc.start(time); osc.stop(time + dur * 1.2);
+      osc.start(time); osc.stop(time + colDur);
     });
 
   } else {
@@ -1019,7 +1022,7 @@ async function renderAudioOffline(totalFrames, frameSecs, speed, total) {
   let pos = 0;
   for (let f = 0; f < totalFrames; f++) {
     const t = f * frameSecs;
-    scheduleNotesAtPos(offAudioCtx, offGain, pos, t);
+    scheduleNotesAtPos(offAudioCtx, offGain, pos, t, frameSecs);
     pos += speed;
     if (pos >= total) break;
   }
@@ -1355,10 +1358,25 @@ async function exportVideoMediaRecorder(audioBuffer, totalFrames, fps, frameSecs
 // ── DOWNLOAD / SHARE ──────────────────────────────────────────────────────
 function downloadOrShare(blob, filename, mimeType) {
   const file = new File([blob], filename, { type: mimeType });
-  // iOS: use share sheet so user can "Save to Photos" / "Save to Files"
-  if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    navigator.share({ files: [file], title: 'Sonify Export' })
-      .catch(() => triggerDownload(blob, filename));
+  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  // On iOS, navigator.share() must be called synchronously within a user gesture.
+  // Export rendering is async so the gesture token expires by the time we arrive here.
+  // Instead, arm the export button: the user's next tap fires share() with a fresh gesture.
+  if (isIOS && navigator.canShare && navigator.canShare({ files: [file] })) {
+    const isAudio = mimeType.startsWith('audio');
+    const btn = document.getElementById(isAudio ? 'dlAudio' : 'dlVideo');
+    const origText = isAudio ? '↓ AUDIO' : '↓ VIDEO';
+    btn.textContent = 'TAP TO SAVE';
+    btn.classList.add('btn-save-ready');
+    btn.onclick = () => {
+      navigator.share({ files: [file], title: 'Sonify Export' })
+        .catch(() => triggerDownload(blob, filename))
+        .finally(() => {
+          btn.textContent = origText;
+          btn.classList.remove('btn-save-ready');
+          btn.onclick = isAudio ? exportAudio : exportVideo;
+        });
+    };
   } else {
     triggerDownload(blob, filename);
   }

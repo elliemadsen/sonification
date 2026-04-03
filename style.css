@@ -441,6 +441,12 @@ canvas#vizCanvas {
   opacity: 0.35;
   cursor: not-allowed;
 }
+.btn-save-ready {
+  background: var(--accent) !important;
+  border-color: var(--accent-dark) !important;
+  color: #3a4d1a !important;
+  font-weight: 700;
+}
 
 .progress-wrap {
   flex: 1 1 0;
@@ -517,6 +523,9 @@ canvas#vizCanvas {
   header {
     height: 40px;
     padding: 8px 12px;
+  }
+  .tagline {
+    font-size: 15px;
   }
 
   .main {
