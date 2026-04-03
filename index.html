@@ -12,7 +12,7 @@
       href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎚️</text></svg>"
     />
     <link
-      href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Bungee+Hairline&family=Pixelify+Sans:wght@400..700&family=Monofett&family=DM+Sans:wght@300;400;500&family=Libre+Barcode+39+Extended+Text&family=Silkscreen:wght@400;700&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="style.css" />
@@ -20,6 +20,9 @@
   <body>
     <header>
       <div class="tagline">Image Sonification Studio</div>
+      <div class="viz-wrap" id="vizWrap" style="display: none">
+        <canvas id="vizCanvas"></canvas>
+      </div>
       <div class="status-pill">
         <div class="status-dot" id="statusDot"></div>
         <span id="statusText">IDLE</span>
@@ -28,18 +31,38 @@
 
     <div class="main">
       <aside class="sidebar">
+        <!-- IMAGE UPLOAD -->
         <div class="section">
           <div class="section-label">Image</div>
           <div class="drop-zone" id="dropZone">
-            <input type="file" id="fileInput" accept="image/*,.heic,.heif" />
+            <input
+              type="file"
+              id="fileInput"
+              accept="image/*,.heic,.heif,.pdf,application/pdf"
+            />
             <span class="drop-icon">⊕</span>
             <div class="drop-text">
-              <strong>Upload image</strong>
-              JPG, PNG, HEIC, HEIF, WebP
+              <strong>Upload image or PDF</strong>
+              JPG, PNG, HEIC, WebP, PDF
+            </div>
+          </div>
+          <div id="pdfPageNav" style="display: none; margin-top: 8px">
+            <div class="ctrl-header" style="margin-bottom: 4px">
+              <span class="ctrl-name">PDF Page</span>
+              <span class="ctrl-val" id="pdfPageInfo">1 / 1</span>
+            </div>
+            <div style="display: flex; gap: 6px">
+              <button class="tog" id="pdfPrev" onclick="pdfChangePage(-1)">
+                ◀ PREV
+              </button>
+              <button class="tog" id="pdfNext" onclick="pdfChangePage(1)">
+                NEXT ▶
+              </button>
             </div>
           </div>
         </div>
 
+        <!-- PLAYHEAD DIRECTION -->
         <div class="section">
           <div class="section-label">Playhead Direction</div>
           <div class="dir-toggle">
@@ -52,15 +75,19 @@
           </div>
         </div>
 
+        <!-- SCAN MODE -->
         <div class="section">
           <div class="section-label">Scan Mode</div>
-          <div class="toggle-group">
+          <div class="toggle-group mode-toggles">
             <button class="tog" onclick="setMode('bright', this)">
               BRIGHT
             </button>
             <button class="tog" onclick="setMode('color', this)">COLOR</button>
             <button class="tog active" onclick="setMode('edge', this)">
               EDGE
+            </button>
+            <button class="tog" onclick="setMode('spectral', this)">
+              SPECTRAL
             </button>
           </div>
           <p
@@ -89,8 +116,95 @@
               step="0.01"
             />
           </div>
+          <div
+            class="ctrl"
+            id="brightnessFloorCtrl"
+            style="margin-top: 10px; display: none"
+          >
+            <div class="ctrl-header">
+              <span class="ctrl-name">Brightness Floor</span>
+              <span class="ctrl-val" id="brightnessFloorVal">0%</span>
+            </div>
+            <input
+              type="range"
+              id="brightnessFloorSlider"
+              min="0"
+              max="1"
+              value="0"
+              step="0.01"
+            />
+            <div style="font-size: 9px; color: var(--muted); margin-top: 2px">
+              Pixels darker than this → silent
+            </div>
+          </div>
+          <div class="ctrl" id="brightnessCeilingCtrl" style="display: none">
+            <div class="ctrl-header">
+              <span class="ctrl-name">Brightness Ceiling</span>
+              <span class="ctrl-val" id="brightnessCeilingVal">100%</span>
+            </div>
+            <input
+              type="range"
+              id="brightnessCeilingSlider"
+              min="0"
+              max="1"
+              value="1"
+              step="0.01"
+            />
+            <div style="font-size: 9px; color: var(--muted); margin-top: 2px">
+              Pixels brighter than this → silent
+            </div>
+          </div>
         </div>
 
+        <!-- MASK EDITOR -->
+        <div class="section" id="edgeEditorSection" style="display: none">
+          <div class="section-label">Mask Editor</div>
+          <div style="display: flex; gap: 6px; margin-bottom: 10px">
+            <button class="tog" id="overlayToggle" onclick="toggleOverlay()">
+              SHOW EDGES
+            </button>
+            <button class="tog" id="editToggle" onclick="toggleEditMode()">
+              EDIT MASK
+            </button>
+          </div>
+          <div id="editTools" style="display: none">
+            <div class="ctrl">
+              <div class="ctrl-header">
+                <span class="ctrl-name">Brush Size</span>
+                <span class="ctrl-val" id="brushSizeVal">20px</span>
+              </div>
+              <input
+                type="range"
+                id="brushSizeSlider"
+                min="3"
+                max="80"
+                value="20"
+                step="1"
+              />
+            </div>
+            <div style="display: flex; gap: 6px; margin-bottom: 10px">
+              <button
+                class="tog active"
+                id="brushEraseBtn"
+                onclick="setBrushMode(true)"
+              >
+                MASK
+              </button>
+              <button
+                class="tog"
+                id="brushRestoreBtn"
+                onclick="setBrushMode(false)"
+              >
+                UNMASK
+              </button>
+            </div>
+            <button class="btn" style="width: 100%" onclick="clearMask()">
+              ✕ CLEAR MASK
+            </button>
+          </div>
+        </div>
+
+        <!-- SOUND SETTINGS -->
         <div class="section">
           <div class="section-label">Sound</div>
 
@@ -152,10 +266,10 @@
             <input
               type="range"
               id="speedSlider"
-              min="1"
+              min="0.25"
               max="30"
               value="1"
-              step="1"
+              step="0.25"
             />
           </div>
 
@@ -235,6 +349,7 @@
           </div>
         </div>
 
+        <!-- PLAYHEAD COLOR -->
         <div class="section">
           <div class="section-label">Playhead Color</div>
           <div style="display: flex; align-items: center; gap: 10px">
@@ -259,17 +374,14 @@
         </div>
       </aside>
 
+      <!-- CANVAS AREA -->
       <div class="canvas-area">
         <div class="canvas-wrap" id="canvasWrap">
           <div class="canvas-placeholder" id="placeholder">
             <div class="placeholder-grid" id="pgrid"></div>
-            <span>Drop an image to begin</span>
+            <span>Drop an image or PDF to begin</span>
           </div>
           <canvas id="mainCanvas" style="display: none"></canvas>
-        </div>
-
-        <div class="viz-wrap" id="vizWrap" style="display: none">
-          <canvas id="vizCanvas"></canvas>
         </div>
 
         <div class="bottom-bar">
