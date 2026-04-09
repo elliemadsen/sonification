@@ -1,0 +1,296 @@
+{
+  "accession": "PZ220846.1",
+  "organism": "Pinna nobilis",
+  "genome_length": 18916,
+  "description": "Complete mitochondrial genome, isolate B18",
+  "features": [
+    {
+      "type": "CDS",
+      "gene": "cox2",
+      "start": 1,
+      "end": 699,
+      "strand": "+",
+      "product": "cytochrome c oxidase subunit 2"
+    },
+    {
+      "type": "tRNA",
+      "gene": "trnI(gat)",
+      "start": 749,
+      "end": 820,
+      "strand": "+",
+      "product": "tRNA-Ile"
+    },
+    {
+      "type": "tRNA",
+      "gene": "trnV(tac)",
+      "start": 838,
+      "end": 903,
+      "strand": "+",
+      "product": "tRNA-Val"
+    },
+    {
+      "type": "tRNA",
+      "gene": "trnK(ttt)",
+      "start": 907,
+      "end": 981,
+      "strand": "+",
+      "product": "tRNA-Lys"
+    },
+    {
+      "type": "tRNA",
+      "gene": "trnE(ttc)",
+      "start": 994,
+      "end": 1067,
+      "strand": "+",
+      "product": "tRNA-Glu"
+    },
+    {
+      "type": "tRNA",
+      "gene": "trnP(tgg)",
+      "start": 1092,
+      "end": 1158,
+      "strand": "+",
+      "product": "tRNA-Pro"
+    },
+    {
+      "type": "tRNA",
+      "gene": "trnF(gaa)",
+      "start": 1175,
+      "end": 1243,
+      "strand": "+",
+      "product": "tRNA-Phe"
+    },
+    {
+      "type": "tRNA",
+      "gene": "trnD(gtc)",
+      "start": 1319,
+      "end": 1394,
+      "strand": "+",
+      "product": "tRNA-Asp"
+    },
+    {
+      "type": "CDS",
+      "gene": "nad6",
+      "start": 1495,
+      "end": 1953,
+      "strand": "+",
+      "product": "NADH dehydrogenase subunit 6"
+    },
+    {
+      "type": "tRNA",
+      "gene": "trnR(tcg)",
+      "start": 2402,
+      "end": 2479,
+      "strand": "+",
+      "product": "tRNA-Arg"
+    },
+    {
+      "type": "CDS",
+      "gene": "nad3",
+      "start": 2778,
+      "end": 3125,
+      "strand": "+",
+      "product": "NADH dehydrogenase subunit 3"
+    },
+    {
+      "type": "tRNA",
+      "gene": "trnN(gtt)",
+      "start": 3140,
+      "end": 3210,
+      "strand": "+",
+      "product": "tRNA-Asn"
+    },
+    {
+      "type": "tRNA",
+      "gene": "trnC(gca)",
+      "start": 3277,
+      "end": 3347,
+      "strand": "+",
+      "product": "tRNA-Cys"
+    },
+    {
+      "type": "tRNA",
+      "gene": "trnM(cat)",
+      "start": 4513,
+      "end": 4585,
+      "strand": "+",
+      "product": "tRNA-Met"
+    },
+    {
+      "type": "rRNA",
+      "gene": "rrnS",
+      "start": 4748,
+      "end": 5534,
+      "strand": "+",
+      "product": "12S ribosomal RNA"
+    },
+    {
+      "type": "tRNA",
+      "gene": "trnG(tcc)",
+      "start": 5619,
+      "end": 5688,
+      "strand": "+",
+      "product": "tRNA-Gly"
+    },
+    {
+      "type": "tRNA",
+      "gene": "trnH(gtg)",
+      "start": 5705,
+      "end": 5773,
+      "strand": "+",
+      "product": "tRNA-His"
+    },
+    {
+      "type": "rRNA",
+      "gene": "rrnL",
+      "start": 5830,
+      "end": 7185,
+      "strand": "+",
+      "product": "16S ribosomal RNA"
+    },
+    {
+      "type": "tRNA",
+      "gene": "trnL2(taa)",
+      "start": 7203,
+      "end": 7272,
+      "strand": "+",
+      "product": "tRNA-Leu"
+    },
+    {
+      "type": "CDS",
+      "gene": "nad1",
+      "start": 7275,
+      "end": 8210,
+      "strand": "+",
+      "product": "NADH dehydrogenase subunit 1"
+    },
+    {
+      "type": "tRNA",
+      "gene": "trnL1(tag)",
+      "start": 8231,
+      "end": 8300,
+      "strand": "+",
+      "product": "tRNA-Leu"
+    },
+    {
+      "type": "tRNA",
+      "gene": "trnQ(ttg)",
+      "start": 8317,
+      "end": 8385,
+      "strand": "+",
+      "product": "tRNA-Gln"
+    },
+    {
+      "type": "CDS",
+      "gene": "nad4l",
+      "start": 8387,
+      "end": 8698,
+      "strand": "+",
+      "product": "NADH dehydrogenase subunit 4L"
+    },
+    {
+      "type": "CDS",
+      "gene": "nad4",
+      "start": 8692,
+      "end": 10056,
+      "strand": "+",
+      "product": "NADH dehydrogenase subunit 4"
+    },
+    {
+      "type": "CDS",
+      "gene": "nad5",
+      "start": 10279,
+      "end": 11988,
+      "strand": "+",
+      "product": "NADH dehydrogenase subunit 5"
+    },
+    {
+      "type": "tRNA",
+      "gene": "trnS1(tct)",
+      "start": 12015,
+      "end": 12086,
+      "strand": "+",
+      "product": "tRNA-Ser"
+    },
+    {
+      "type": "CDS",
+      "gene": "nad2",
+      "start": 12104,
+      "end": 13126,
+      "strand": "+",
+      "product": "NADH dehydrogenase subunit 2"
+    },
+    {
+      "type": "tRNA",
+      "gene": "trnY(gta)",
+      "start": 13428,
+      "end": 13496,
+      "strand": "+",
+      "product": "tRNA-Tyr"
+    },
+    {
+      "type": "tRNA",
+      "gene": "trnT(tgt)",
+      "start": 13519,
+      "end": 13592,
+      "strand": "+",
+      "product": "tRNA-Thr"
+    },
+    {
+      "type": "CDS",
+      "gene": "cox1",
+      "start": 13594,
+      "end": 15174,
+      "strand": "+",
+      "product": "cytochrome c oxidase subunit 1"
+    },
+    {
+      "type": "CDS",
+      "gene": "cox3",
+      "start": 15246,
+      "end": 16070,
+      "strand": "+",
+      "product": "cytochrome c oxidase subunit 3"
+    },
+    {
+      "type": "tRNA",
+      "gene": "trnS2(tga)",
+      "start": 16125,
+      "end": 16190,
+      "strand": "+",
+      "product": "tRNA-Ser"
+    },
+    {
+      "type": "tRNA",
+      "gene": "trnA(tgc)",
+      "start": 16211,
+      "end": 16279,
+      "strand": "+",
+      "product": "tRNA-Ala"
+    },
+    {
+      "type": "tRNA",
+      "gene": "trnW(tca)",
+      "start": 16959,
+      "end": 17025,
+      "strand": "+",
+      "product": "tRNA-Trp"
+    },
+    {
+      "type": "CDS",
+      "gene": "atp6",
+      "start": 17031,
+      "end": 17765,
+      "strand": "+",
+      "product": "ATP synthase F0 subunit 6"
+    },
+    {
+      "type": "CDS",
+      "gene": "cob",
+      "start": 17731,
+      "end": 18897,
+      "strand": "+",
+      "product": "cytochrome b"
+    }
+  ]
+}
