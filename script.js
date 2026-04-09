@@ -48,6 +48,27 @@ const MODEDESCS = {
   spectral: 'Column becomes a frequency spectrum: position = pitch, brightness = volume. Like playing a spectrogram.',
 };
 
+// ── DETERMINISTIC REVERB IR ───────────────────────────────────────────────
+// Using a seeded LCG so the IR is identical every time (live and offline).
+function seededRand(seed) {
+  let s = seed >>> 0;
+  return () => {
+    s = (Math.imul(s, 1664525) + 1013904223) | 0;
+    return (s >>> 0) / 0x100000000;
+  };
+}
+function makeIR(ctx) {
+  const irLen = Math.round(ctx.sampleRate * 1.5);
+  const ir    = ctx.createBuffer(2, irLen, ctx.sampleRate);
+  const rand  = seededRand(0xdeadbeef);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = ir.getChannelData(ch);
+    for (let i = 0; i < irLen; i++)
+      d[i] = (rand() * 2 - 1) * Math.pow(1 - i / irLen, 2.5);
+  }
+  return ir;
+}
+
 // ── DOM SETUP ─────────────────────────────────────────────────────────────
 const vuMeter = document.getElementById('vuMeter');
 for (let i = 0; i < 12; i++) {
@@ -465,13 +486,7 @@ function initAudio() {
   masterGain.gain.value = parseFloat(document.getElementById('volSlider').value);
 
   reverbNode = audioCtx.createConvolver();
-  const irLen = audioCtx.sampleRate * 1.5;
-  const ir = audioCtx.createBuffer(2, irLen, audioCtx.sampleRate);
-  for (let ch = 0; ch < 2; ch++) {
-    const d = ir.getChannelData(ch);
-    for (let i = 0; i < irLen; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / irLen, 2.5);
-  }
-  reverbNode.buffer = ir;
+  reverbNode.buffer = makeIR(audioCtx);
 
   analyser = audioCtx.createAnalyser();
   analyser.fftSize = 256;
@@ -837,16 +852,20 @@ function scheduleNotesAtPos(ctx, gainNode, pos, time, frameSecs = 0.053) {
       const bright = (px[0]*0.299 + px[1]*0.587 + px[2]*0.114) / 255;
       if (bright < brightnessFloor || bright > brightnessCeiling) continue;
       const normBright = range > 0 ? (bright - brightnessFloor) / range : 0;
-      const vol = (1 - normBright) * 0.6 / voices;
+      const vol = (1 - normBright) * 0.5 / voices;
       if (vol < 0.002) continue;
       const osc = ctx.createOscillator(), g = ctx.createGain();
       osc.type = waveform;
       osc.frequency.value = midiToFreq(getN(1 - (i / (voices - 1 || 1))));
+      // Sustain for the full frame so consecutive frames blend smoothly
+      // (mirrors the live persistent-oscillator behaviour)
+      const noteDur = frameSecs + 0.015;
       g.gain.setValueAtTime(0.0001, time);
       g.gain.linearRampToValueAtTime(vol, time + attack);
-      g.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+      g.gain.setValueAtTime(vol, time + noteDur - 0.008);
+      g.gain.linearRampToValueAtTime(0.0001, time + noteDur);
       osc.connect(g); g.connect(gainNode);
-      osc.start(time); osc.stop(time + dur);
+      osc.start(time); osc.stop(time + noteDur);
     }
 
   } else if (mode === 'color') {
@@ -914,16 +933,20 @@ function scheduleNotesAtPos(ctx, gainNode, pos, time, frameSecs = 0.053) {
       if (bright < brightnessFloor || bright > brightnessCeiling) continue;
       const normBright = range > 0 ? (bright - brightnessFloor) / range : 0;
       const distFromEdge = Math.min(normBright, 1 - normBright) * 2;
-      const vol = (0.15 + 0.85 * distFromEdge) * 0.5 / voices;
+      const vol = (0.15 + 0.85 * distFromEdge) * 0.4 / voices;
       if (vol < 0.002) continue;
       const osc = ctx.createOscillator(), g = ctx.createGain();
       osc.type = waveform;
       osc.frequency.value = midiToFreq(getN(1 - bright));
+      // Sustain for the full frame so consecutive frames blend smoothly
+      // (mirrors the live persistent-oscillator behaviour)
+      const noteDur = frameSecs + 0.015;
       g.gain.setValueAtTime(0.0001, time);
       g.gain.linearRampToValueAtTime(vol, time + attack);
-      g.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+      g.gain.setValueAtTime(vol, time + noteDur - 0.008);
+      g.gain.linearRampToValueAtTime(0.0001, time + noteDur);
       osc.connect(g); g.connect(gainNode);
-      osc.start(time); osc.stop(time + dur);
+      osc.start(time); osc.stop(time + noteDur);
     }
   }
 }
@@ -997,34 +1020,159 @@ function seekClick(e) {
 }
 
 // ── OFFLINE AUDIO RENDERING ───────────────────────────────────────────────
+// Mirrors live updateVoiceOscs — schedules setTargetAtTime on persistent oscs.
+function _offlineUpdateVoices(pool, pos, time, smooth) {
+  const voices = pool.length;
+  const total  = direction === 'lr' ? logicalW : logicalH;
+  const cp     = Math.min(Math.max(Math.floor(pos), 0), total - 1);
+  const range  = brightnessCeiling - brightnessFloor;
+  const scale  = SCALES[document.getElementById('scaleSelect').value];
+  const root   = parseInt(document.getElementById('rootSelect').value);
+  const semis  = parseInt(document.getElementById('rangeSlider').value);
+  const maxIdx = scale.findIndex(v => v >= semis);
+  const sLen   = maxIdx > 0 ? maxIdx : scale.length;
+  const getN   = t => root + scale[Math.min(Math.floor(t * (sLen - 1)), sLen - 1)];
+
+  pool.forEach((v, i) => {
+    let x, y;
+    if (direction === 'lr') {
+      x = Math.min(cp, logicalW - 1);
+      y = Math.floor((i / (voices - 1 || 1)) * (logicalH - 1));
+    } else {
+      y = Math.min(cp, logicalH - 1);
+      x = Math.floor((i / (voices - 1 || 1)) * (logicalW - 1));
+    }
+    const px = offCtx.getImageData(x, y, 1, 1).data;
+    if (px[3] < 10) { v.g.gain.setTargetAtTime(0, time, smooth); return; }
+    if (maskCanvas) {
+      const mp = maskCtx.getImageData(x, y, 1, 1).data;
+      if (mp[3] > 128) { v.g.gain.setTargetAtTime(0, time, smooth); return; }
+    }
+    let freq, vol;
+    if (mode === 'spectral') {
+      const bright = (px[0] * 0.299 + px[1] * 0.587 + px[2] * 0.114) / 255;
+      if (bright < brightnessFloor || bright > brightnessCeiling) { v.g.gain.setTargetAtTime(0, time, smooth); return; }
+      const nb = range > 0 ? (bright - brightnessFloor) / range : 0;
+      vol  = Math.max((1 - nb) * 0.5 / voices, 0);
+      freq = midiToFreq(getN(1 - (i / (voices - 1 || 1))));
+    } else {
+      const r = px[0] / 255, gv = px[1] / 255, b = px[2] / 255;
+      const bright = r * 0.299 + gv * 0.587 + b * 0.114;
+      if (bright < brightnessFloor || bright > brightnessCeiling) { v.g.gain.setTargetAtTime(0, time, smooth); return; }
+      const nb = range > 0 ? (bright - brightnessFloor) / range : 0;
+      vol  = (0.15 + 0.85 * Math.min(nb, 1 - nb) * 2) * 0.4 / voices;
+      freq = midiToFreq(getN(1 - bright));
+    }
+    if (vol < 0.001) { v.g.gain.setTargetAtTime(0, time, smooth); return; }
+    v.osc.frequency.setTargetAtTime(freq, time, smooth);
+    v.g.gain.setTargetAtTime(vol, time, smooth);
+  });
+}
+
+// Mirrors live updateColorOscs — schedules setTargetAtTime on 3 persistent oscs.
+function _offlineUpdateColor(colPool, pos, time, smooth) {
+  const voices = parseInt(document.getElementById('voicesSlider').value);
+  const total  = direction === 'lr' ? logicalW : logicalH;
+  const cp     = Math.min(Math.max(Math.floor(pos), 0), total - 1);
+  const scale  = SCALES[document.getElementById('scaleSelect').value];
+  const root   = parseInt(document.getElementById('rootSelect').value);
+  const semis  = parseInt(document.getElementById('rangeSlider').value);
+  const maxIdx = scale.findIndex(v => v >= semis);
+  const sLen   = maxIdx > 0 ? maxIdx : scale.length;
+  const getN   = t => root + scale[Math.min(Math.floor(t * (sLen - 1)), sLen - 1)];
+
+  const samples = [];
+  for (let i = 0; i < voices; i++) {
+    let x, y;
+    if (direction === 'lr') {
+      x = Math.min(cp, logicalW - 1);
+      y = Math.floor((i / (voices - 1 || 1)) * (logicalH - 1));
+    } else {
+      y = Math.min(cp, logicalH - 1);
+      x = Math.floor((i / (voices - 1 || 1)) * (logicalW - 1));
+    }
+    const px = offCtx.getImageData(x, y, 1, 1).data;
+    if (px[3] < 10) continue;
+    if (maskCanvas) {
+      const mp = maskCtx.getImageData(x, y, 1, 1).data;
+      if (mp[3] > 128) continue;
+    }
+    samples.push({ r: px[0] / 255, g: px[1] / 255, b: px[2] / 255, pos: i / (voices - 1 || 1) });
+  }
+  [[s => s.r, 0], [s => s.g, 1], [s => s.b, 2]].forEach(([ch, band], idx) => {
+    const v = colPool[idx];
+    if (samples.length === 0) { v.g.gain.setTargetAtTime(0, time, smooth); return; }
+    let weightSum = 0, posSum = 0;
+    samples.forEach(s => { const val = ch(s); weightSum += val; posSum += val * s.pos; });
+    const avg = weightSum / samples.length;
+    if (avg < 0.04) { v.g.gain.setTargetAtTime(0, time, smooth); return; }
+    const centroid = weightSum > 0 ? posSum / weightSum : 0.5;
+    const bandT = band / 3 + (1 - centroid) / 3;
+    v.osc.frequency.setTargetAtTime(midiToFreq(getN(bandT)), time, smooth);
+    v.g.gain.setTargetAtTime(Math.min(avg * 0.45, 0.32), time, smooth);
+  });
+}
+
 async function renderAudioOffline(totalFrames, frameSecs, speed, total) {
-  const sr = 44100;
-  const totalSecs = totalFrames * frameSecs + 1.0;
+  const sr       = 44100;
+  const totalSecs = totalFrames * frameSecs + 1.5;
   const offAudioCtx = new OfflineAudioContext(2, Math.ceil(sr * totalSecs), sr);
+  const smooth   = 0.025; // matches live setTargetAtTime constant
 
   const offGain = offAudioCtx.createGain();
   offGain.gain.value = parseFloat(document.getElementById('volSlider').value);
   const offReverbGain = offAudioCtx.createGain();
   offReverbGain.gain.value = parseFloat(document.getElementById('reverbSlider').value);
-  const irLen = sr * 1.5;
-  const irBuf = offAudioCtx.createBuffer(2, irLen, sr);
-  for (let ch = 0; ch < 2; ch++) {
-    const d = irBuf.getChannelData(ch);
-    for (let i = 0; i < irLen; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / irLen, 2.5);
-  }
   const convOff = offAudioCtx.createConvolver();
-  convOff.buffer = irBuf;
+  convOff.buffer = makeIR(offAudioCtx);
   offGain.connect(offAudioCtx.destination);
   offGain.connect(offReverbGain);
   offReverbGain.connect(convOff);
   convOff.connect(offAudioCtx.destination);
 
-  let pos = 0;
-  for (let f = 0; f < totalFrames; f++) {
-    const t = f * frameSecs;
-    scheduleNotesAtPos(offAudioCtx, offGain, pos, t, frameSecs);
-    pos += speed;
-    if (pos >= total) break;
+  if (mode === 'bright' || mode === 'spectral') {
+    // ── Persistent oscillator pool — exact offline mirror of updateVoiceOscs ──
+    const voices = parseInt(document.getElementById('voicesSlider').value);
+    const pool = Array.from({ length: voices }, () => {
+      const osc = offAudioCtx.createOscillator();
+      const g   = offAudioCtx.createGain();
+      osc.type = waveform; osc.frequency.value = 220; g.gain.value = 0;
+      osc.connect(g); g.connect(offGain);
+      osc.start(0); osc.stop(totalSecs);
+      return { osc, g };
+    });
+    let pos = 0;
+    for (let f = 0; f < totalFrames; f++) {
+      _offlineUpdateVoices(pool, pos, f * frameSecs, smooth);
+      pos += speed;
+      if (pos >= total) break;
+    }
+
+  } else if (mode === 'color') {
+    // ── Persistent R/G/B oscillators — exact offline mirror of updateColorOscs ──
+    const colPool = [0, 1, 2].map(() => {
+      const osc = offAudioCtx.createOscillator();
+      const g   = offAudioCtx.createGain();
+      osc.type = waveform; osc.frequency.value = 220; g.gain.value = 0;
+      osc.connect(g); g.connect(offGain);
+      osc.start(0); osc.stop(totalSecs);
+      return { osc, g };
+    });
+    let pos = 0;
+    for (let f = 0; f < totalFrames; f++) {
+      _offlineUpdateColor(colPool, pos, f * frameSecs, smooth);
+      pos += speed;
+      if (pos >= total) break;
+    }
+
+  } else {
+    // ── Edge mode: discrete per-note oscillators (correct for this mode) ──
+    let pos = 0;
+    for (let f = 0; f < totalFrames; f++) {
+      scheduleNotesAtPos(offAudioCtx, offGain, pos, f * frameSecs, frameSecs);
+      pos += speed;
+      if (pos >= total) break;
+    }
   }
 
   return offAudioCtx.startRendering();
